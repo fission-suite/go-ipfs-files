@@ -14,16 +14,17 @@ import (
 // No more than one file will be opened at a time (directories will advance
 // to the next file when NextFile() is called).
 type serialFile struct {
-	path              string
-	files             []os.FileInfo
-	stat              os.FileInfo
-	handleHiddenFiles bool
+	path   string
+	files  []os.FileInfo
+	stat   os.FileInfo
+	filter *Filter
 }
 
 type serialIterator struct {
 	files             []os.FileInfo
 	handleHiddenFiles bool
 	path              string
+	filter            *Filter
 
 	curName string
 	curFile Node
@@ -32,7 +33,7 @@ type serialIterator struct {
 }
 
 // TODO: test/document limitations
-func NewSerialFile(path string, hidden bool, stat os.FileInfo) (Node, error) {
+func NewSerialFile(path string, filter *Filter, stat os.FileInfo) (Node, error) {
 	switch mode := stat.Mode(); {
 	case mode.IsRegular():
 		file, err := os.Open(path)
@@ -47,7 +48,7 @@ func NewSerialFile(path string, hidden bool, stat os.FileInfo) (Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &serialFile{path, contents, stat, hidden}, nil
+		return &serialFile{path, filterFiles(filter, contents), stat, filter}, nil
 	case mode&os.ModeSymlink != 0:
 		target, err := os.Readlink(path)
 		if err != nil {
@@ -90,7 +91,7 @@ func (it *serialIterator) Next() bool {
 	// recursively call the constructor on the next file
 	// if it's a regular file, we will open it as a ReaderFile
 	// if it's a directory, files in it will be opened serially
-	sf, err := NewSerialFile(filePath, it.handleHiddenFiles, stat)
+	sf, err := NewSerialFile(filePath, it.filter, stat)
 	if err != nil {
 		it.err = err
 		return false
@@ -107,9 +108,9 @@ func (it *serialIterator) Err() error {
 
 func (f *serialFile) Entries() DirIterator {
 	return &serialIterator{
-		path:              f.path,
-		files:             f.files,
-		handleHiddenFiles: f.handleHiddenFiles,
+		path:   f.path,
+		files:  f.files,
+		filter: f.filter,
 	}
 }
 
@@ -122,7 +123,7 @@ func (f *serialFile) NextFile() (string, Node, error) {
 	stat := f.files[0]
 	f.files = f.files[1:]
 
-	for !f.handleHiddenFiles && strings.HasPrefix(stat.Name(), ".") {
+	for !f.filter.IncludeHidden && strings.HasPrefix(stat.Name(), ".") {
 		if len(f.files) == 0 {
 			return "", nil, io.EOF
 		}
@@ -137,7 +138,7 @@ func (f *serialFile) NextFile() (string, Node, error) {
 	// recursively call the constructor on the next file
 	// if it's a regular file, we will open it as a ReaderFile
 	// if it's a directory, files in it will be opened serially
-	sf, err := NewSerialFile(filePath, f.handleHiddenFiles, stat)
+	sf, err := NewSerialFile(filePath, f.filter, stat)
 	if err != nil {
 		return "", nil, err
 	}
@@ -176,3 +177,17 @@ func (f *serialFile) Size() (int64, error) {
 
 var _ Directory = &serialFile{}
 var _ DirIterator = &serialIterator{}
+
+func filterFiles(filter *Filter, files []os.FileInfo) (res []os.FileInfo) {
+	for _, file := range files {
+		name := file.Name()
+		if file.IsDir() {
+			name = fmt.Sprintf("%s/", name)
+		}
+		if filter.Filter(name) {
+			continue
+		}
+		res = append(res, file)
+	}
+	return
+}
