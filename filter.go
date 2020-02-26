@@ -38,11 +38,11 @@ func isPathHidden(path string) bool {
 
 // Filter returns true if a file should be filtered
 func (filter *Filter) Filter(path string) bool {
-	if isPathHidden(path) {
-		if filter.IncludeHidden {
-			return false
+	shouldExcludeFile := filter.Rules.MatchesPath(path)
+	if !filter.IncludeHidden {
+		if isPathHidden(path) {
+			return true
 		}
-		return true
 	}
-	return filter.Rules.MatchesPath(path)
+	return shouldExcludeFile
 }

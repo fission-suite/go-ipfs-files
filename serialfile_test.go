@@ -5,11 +5,12 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
 
-func isPathHidden(p string) bool {
+func isFullPathHidden(p string) bool {
 	return strings.HasPrefix(p, ".") || strings.Contains(p, "/.")
 }
 
@@ -49,8 +50,15 @@ func testSerialFile(t *testing.T, hidden bool) {
 		}
 	}
 
+	expectedHiddenPaths := make([]string, 0, 4)
+	expectedRegularPaths := make([]string, 0, 6)
 	for p, c := range expected {
 		path := filepath.Join(tmppath, p)
+		if isFullPathHidden(path) {
+			expectedHiddenPaths = append(expectedHiddenPaths, p)
+		} else {
+			expectedRegularPaths = append(expectedRegularPaths, p)
+		}
 		if c == "" {
 			continue
 		}
@@ -71,6 +79,8 @@ func testSerialFile(t *testing.T, hidden bool) {
 	defer sf.Close()
 
 	rootFound := false
+	actualRegularPaths := make([]string, 0, len(expectedRegularPaths))
+	actualHiddenPaths := make([]string, 0, len(expectedHiddenPaths))
 	err = Walk(sf, func(path string, nd Node) error {
 		defer nd.Close()
 
@@ -85,8 +95,12 @@ func testSerialFile(t *testing.T, hidden bool) {
 			rootFound = true
 			return nil
 		}
-
-		if !hidden && isPathHidden(path) {
+		if isFullPathHidden(path) {
+			actualHiddenPaths = append(actualHiddenPaths, path)
+		} else {
+			actualRegularPaths = append(actualRegularPaths, path)
+		}
+		if !hidden && isFullPathHidden(path) {
 			return fmt.Errorf("found a hidden file")
 		}
 
@@ -117,10 +131,16 @@ func testSerialFile(t *testing.T, hidden bool) {
 	if !rootFound {
 		t.Fatal("didn't find the root")
 	}
-	for p := range expected {
-		if !hidden && isPathHidden(p) {
-			continue
+	for _, regular := range expectedRegularPaths {
+		if idx := sort.SearchStrings(actualRegularPaths, regular); idx < 0 {
+			t.Errorf("missed regular path %q", regular)
 		}
-		t.Errorf("missed %q", p)
+	}
+	if hidden && len(actualHiddenPaths) != len(expectedHiddenPaths) {
+		for _, missing := range expectedHiddenPaths {
+			if idx := sort.SearchStrings(actualHiddenPaths, missing); idx < 0 {
+				t.Errorf("missed %q", missing)
+			}
+		}
 	}
 }

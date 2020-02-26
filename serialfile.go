@@ -32,8 +32,16 @@ type serialIterator struct {
 	err error
 }
 
+func NewSerialFile(path string, hidden bool, stat os.FileInfo) (Node, error) {
+	filter, err := NewFilter("", nil, hidden)
+	if err != nil {
+		return nil, err
+	}
+	return NewSerialFileWithFilter(path, filter, stat)
+}
+
 // TODO: test/document limitations
-func NewSerialFile(path string, filter *Filter, stat os.FileInfo) (Node, error) {
+func NewSerialFileWithFilter(path string, filter *Filter, stat os.FileInfo) (Node, error) {
 	switch mode := stat.Mode(); {
 	case mode.IsRegular():
 		file, err := os.Open(path)
@@ -91,7 +99,7 @@ func (it *serialIterator) Next() bool {
 	// recursively call the constructor on the next file
 	// if it's a regular file, we will open it as a ReaderFile
 	// if it's a directory, files in it will be opened serially
-	sf, err := NewSerialFile(filePath, it.filter, stat)
+	sf, err := NewSerialFileWithFilter(filePath, it.filter, stat)
 	if err != nil {
 		it.err = err
 		return false
@@ -108,9 +116,10 @@ func (it *serialIterator) Err() error {
 
 func (f *serialFile) Entries() DirIterator {
 	return &serialIterator{
-		path:   f.path,
-		files:  f.files,
-		filter: f.filter,
+		path:              f.path,
+		files:             f.files,
+		filter:            f.filter,
+		handleHiddenFiles: f.filter.IncludeHidden,
 	}
 }
 
@@ -138,7 +147,7 @@ func (f *serialFile) NextFile() (string, Node, error) {
 	// recursively call the constructor on the next file
 	// if it's a regular file, we will open it as a ReaderFile
 	// if it's a directory, files in it will be opened serially
-	sf, err := NewSerialFile(filePath, f.filter, stat)
+	sf, err := NewSerialFileWithFilter(filePath, f.filter, stat)
 	if err != nil {
 		return "", nil, err
 	}
