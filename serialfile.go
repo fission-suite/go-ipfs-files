@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // serialFile implements Node, and reads from a path on the OS filesystem.
@@ -21,10 +20,9 @@ type serialFile struct {
 }
 
 type serialIterator struct {
-	files             []os.FileInfo
-	handleHiddenFiles bool
-	path              string
-	filter            *Filter
+	files  []os.FileInfo
+	path   string
+	filter *Filter
 
 	curName string
 	curFile Node
@@ -32,15 +30,19 @@ type serialIterator struct {
 	err error
 }
 
-func NewSerialFile(path string, hidden bool, stat os.FileInfo) (Node, error) {
-	filter, err := NewFilter("", nil, hidden)
+// NewSerialFile takes a filepath, a bool specifying if hidden files should be included,
+// and a fileInfo and returns a Node representing file, directory or special file.
+func NewSerialFile(path string, includeHidden bool, stat os.FileInfo) (Node, error) {
+	filter, err := NewFilter("", nil, includeHidden)
 	if err != nil {
 		return nil, err
 	}
 	return NewSerialFileWithFilter(path, filter, stat)
 }
 
-// TODO: test/document limitations
+// NewSerialFileWith takes a filepath, a filter for determining which files should be
+// operated upon if the filepath is a directory, and a fileInfo and returns a
+// Node representing file, directory or special file.
 func NewSerialFileWithFilter(path string, filter *Filter, stat os.FileInfo) (Node, error) {
 	switch mode := stat.Mode(); {
 	case mode.IsRegular():
@@ -84,7 +86,7 @@ func (it *serialIterator) Next() bool {
 
 	stat := it.files[0]
 	it.files = it.files[1:]
-	for !it.handleHiddenFiles && isHidden(stat) {
+	for !it.filter.IncludeHidden && isHidden(stat) {
 		if len(it.files) == 0 {
 			return false
 		}
@@ -116,10 +118,9 @@ func (it *serialIterator) Err() error {
 
 func (f *serialFile) Entries() DirIterator {
 	return &serialIterator{
-		path:              f.path,
-		files:             f.files,
-		filter:            f.filter,
-		handleHiddenFiles: f.filter.IncludeHidden,
+		path:   f.path,
+		files:  f.files,
+		filter: f.filter,
 	}
 }
 
@@ -132,7 +133,7 @@ func (f *serialFile) NextFile() (string, Node, error) {
 	stat := f.files[0]
 	f.files = f.files[1:]
 
-	for !f.filter.IncludeHidden && strings.HasPrefix(stat.Name(), ".") {
+	for !f.filter.IncludeHidden && isHidden(stat) {
 		if len(f.files) == 0 {
 			return "", nil, io.EOF
 		}
@@ -193,7 +194,7 @@ func filterFiles(filter *Filter, files []os.FileInfo) (res []os.FileInfo) {
 		if file.IsDir() {
 			name = fmt.Sprintf("%s/", name)
 		}
-		if filter.Filter(name) {
+		if filter.ShouldExclude(file) {
 			continue
 		}
 		res = append(res, file)

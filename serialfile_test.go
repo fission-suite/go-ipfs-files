@@ -15,18 +15,20 @@ func isFullPathHidden(p string) bool {
 }
 
 func TestSerialFile(t *testing.T) {
-	t.Run("Hidden", func(t *testing.T) { testSerialFile(t, true) })
-	t.Run("NotHidden", func(t *testing.T) { testSerialFile(t, false) })
+	t.Run("Hidden/NoFilter", func(t *testing.T) { testSerialFile(t, true, false) })
+	t.Run("Hidden/Filter", func(t *testing.T) { testSerialFile(t, true, true) })
+	t.Run("NotHidden/NoFilter", func(t *testing.T) { testSerialFile(t, false, false) })
+	t.Run("NotHidden/Filter", func(t *testing.T) { testSerialFile(t, false, true) })
 }
 
-func testSerialFile(t *testing.T, hidden bool) {
+func testSerialFile(t *testing.T, hidden, withIgnoreRules bool) {
 	tmppath, err := ioutil.TempDir("", "files-test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tmppath)
 
-	expected := map[string]string{
+	testInputs := map[string]string{
 		"1":      "Some text!\n",
 		"2":      "beep",
 		"3":      "",
@@ -39,8 +41,18 @@ func testSerialFile(t *testing.T, hidden bool) {
 		".8":     "",
 		".8/foo": "bla",
 	}
+	fileFilter, err := NewFilter("", []string{"9", "10"}, hidden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withIgnoreRules {
+		testInputs["9"] = ""
+		testInputs["9/b"] = "bebop"
+		testInputs["10"] = ""
+		testInputs["10/.c"] = "doowop"
+	}
 
-	for p, c := range expected {
+	for p, c := range testInputs {
 		path := filepath.Join(tmppath, p)
 		if c != "" {
 			continue
@@ -50,20 +62,29 @@ func testSerialFile(t *testing.T, hidden bool) {
 		}
 	}
 
-	expectedHiddenPaths := make([]string, 0, 4)
-	expectedRegularPaths := make([]string, 0, 6)
-	for p, c := range expected {
+	for p, c := range testInputs {
 		path := filepath.Join(tmppath, p)
-		if isFullPathHidden(path) {
-			expectedHiddenPaths = append(expectedHiddenPaths, p)
-		} else {
-			expectedRegularPaths = append(expectedRegularPaths, p)
-		}
 		if c == "" {
 			continue
 		}
 		if err := ioutil.WriteFile(path, []byte(c), 0666); err != nil {
 			t.Fatal(err)
+		}
+	}
+	expectedHiddenPaths := make([]string, 0, 4)
+	expectedRegularPaths := make([]string, 0, 6)
+	for p := range testInputs {
+		path := filepath.Join(tmppath, p)
+		stat, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !fileFilter.ShouldExclude(stat) {
+			if isFullPathHidden(path) {
+				expectedHiddenPaths = append(expectedHiddenPaths, p)
+			} else {
+				expectedRegularPaths = append(expectedRegularPaths, p)
+			}
 		}
 	}
 
@@ -73,6 +94,9 @@ func testSerialFile(t *testing.T, hidden bool) {
 	}
 
 	sf, err := NewSerialFile(tmppath, hidden, stat)
+	if withIgnoreRules {
+		sf, err = NewSerialFileWithFilter(tmppath, fileFilter, stat)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,12 +127,15 @@ func testSerialFile(t *testing.T, hidden bool) {
 		if !hidden && isFullPathHidden(path) {
 			return fmt.Errorf("found a hidden file")
 		}
+		if fileFilter.Rules.MatchesPath(path) {
+			return fmt.Errorf("found a file that should be excluded")
+		}
 
-		data, ok := expected[path]
+		data, ok := testInputs[path]
 		if !ok {
 			return fmt.Errorf("expected something at %q", path)
 		}
-		delete(expected, path)
+		delete(testInputs, path)
 
 		switch nd := nd.(type) {
 		case *Symlink:

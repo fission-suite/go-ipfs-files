@@ -1,12 +1,19 @@
 package files
 
 import (
-	"path/filepath"
+	"os"
 
 	ignore "github.com/crackcomm/go-gitignore"
 )
 
-// Filter - Filter filter.
+// Filter represents a set of rules for determining if a file should be included or excluded.
+// A rule follows the syntax for patterns used in .gitgnore files for specifying untracked files.
+// Examples:
+// foo.txt
+// *.app
+// bar/
+// **/baz
+// fizz/**
 type Filter struct {
 	// IncludeHidden - Include hidden files
 	IncludeHidden bool
@@ -14,7 +21,10 @@ type Filter struct {
 	Rules *ignore.GitIgnore
 }
 
-// NewFilter creates a new file filter form .gitignore and list of rules.
+// NewFilter creates a new file filter from a .gitignore file and/or a list of ignore rules.
+// An ignoreFile is a path to a file with .gitignore-style patterns to exclude, one per line
+// rules is an array of strings representing .gitignore-style patterns
+// For reference on ignore rule syntax, see https://git-scm.com/docs/gitignore
 func NewFilter(ignoreFile string, rules []string, includeHidden bool) (filter *Filter, err error) {
 	filter = &Filter{IncludeHidden: includeHidden}
 	if ignoreFile == "" {
@@ -25,24 +35,11 @@ func NewFilter(ignoreFile string, rules []string, includeHidden bool) (filter *F
 	return
 }
 
-func isPathHidden(path string) bool {
-	path = filepath.Base(path)
-	if path == "." || path == "" {
-		return false
-	}
-	if rune(path[0]) == rune('.') {
+// ShouldExclude takes an os.FileInfo object and applies rules to determine if its target should be excluded.
+func (filter *Filter) ShouldExclude(fileInfo os.FileInfo) (result bool) {
+	path := fileInfo.Name()
+	if !filter.IncludeHidden && isHidden(fileInfo) {
 		return true
 	}
-	return false
-}
-
-// Filter returns true if a file should be filtered
-func (filter *Filter) Filter(path string) bool {
-	shouldExcludeFile := filter.Rules.MatchesPath(path)
-	if !filter.IncludeHidden {
-		if isPathHidden(path) {
-			return true
-		}
-	}
-	return shouldExcludeFile
+	return filter.Rules.MatchesPath(path)
 }
