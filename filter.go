@@ -25,14 +25,18 @@ type Filter struct {
 // An ignoreFile is a path to a file with .gitignore-style patterns to exclude, one per line
 // rules is an array of strings representing .gitignore-style patterns
 // For reference on ignore rule syntax, see https://git-scm.com/docs/gitignore
-func NewFilter(ignoreFile string, rules []string, includeHidden bool) (filter *Filter, err error) {
-	filter = &Filter{IncludeHidden: includeHidden}
+func NewFilter(ignoreFile string, rules []string, includeHidden bool) (*Filter, error) {
+	var ignoreRules *ignore.GitIgnore
+	var err error
 	if ignoreFile == "" {
-		filter.Rules, err = ignore.CompileIgnoreLines(rules...)
+		ignoreRules, err = ignore.CompileIgnoreLines(rules...)
 	} else {
-		filter.Rules, err = ignore.CompileIgnoreFileAndLines(ignoreFile, rules...)
+		ignoreRules, err = ignore.CompileIgnoreFileAndLines(ignoreFile, rules...)
 	}
-	return
+	if err != nil {
+		return nil, err
+	}
+	return &Filter{IncludeHidden: includeHidden, Rules: ignoreRules}, nil
 }
 
 // ShouldExclude takes an os.FileInfo object and applies rules to determine if its target should be excluded.

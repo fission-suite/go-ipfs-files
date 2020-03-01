@@ -166,7 +166,7 @@ func testSerialFile(t *testing.T, hidden, withIgnoreRules bool) {
 	if hidden && len(actualHiddenPaths) != len(expectedHiddenPaths) {
 		for _, missing := range expectedHiddenPaths {
 			if idx := sort.SearchStrings(actualHiddenPaths, missing); idx < 0 {
-				t.Errorf("missed %q", missing)
+				t.Errorf("missed hidden path %q", missing)
 			}
 		}
 	}
